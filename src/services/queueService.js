@@ -14,13 +14,14 @@ class QueueService {
         : JSON.stringify(webhookPayload);
 
       // Step 1: Insert into zoom_processing_queue (for ai-student-progress worker)
+      // Production schema: id, meeting_id, webhook_payload, retry_count, error_message, created_at, started_at, completed_at, llm_response_raw
+      // NOTE: No 'status' column in production!
       const [result] = await db.execute(
         `INSERT INTO zoom_processing_queue
-         (meeting_id, webhook_payload, status, created_at)
-         VALUES (?, ?, 'pending', NOW())
+         (meeting_id, webhook_payload)
+         VALUES (?, ?)
          ON DUPLICATE KEY UPDATE
          webhook_payload = VALUES(webhook_payload),
-         status = 'pending',
          retry_count = 0,
          error_message = NULL`,
         [meetingId, payloadJson]

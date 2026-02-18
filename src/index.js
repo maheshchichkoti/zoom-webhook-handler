@@ -27,8 +27,8 @@ app.use((req, res, next) => {
 
 // Health check endpoint
 app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'ok', 
+  res.json({
+    status: 'ok',
     service: 'zoom-webhook-receiver',
     timestamp: new Date().toISOString(),
     uptime: process.uptime()
@@ -39,15 +39,15 @@ app.get('/health', (req, res) => {
 app.post('/zoom/webhook/test', async (req, res) => {
   try {
     const payload = req.body;
-    
+
     logger.info('='.repeat(60));
     logger.info('🧪 TEST WEBHOOK RECEIVED');
     logger.info('='.repeat(60));
     logger.info('Event:', payload.event || 'unknown');
     logger.info('Payload:', JSON.stringify(payload, null, 2));
     logger.info('='.repeat(60));
-    
-    res.json({ 
+
+    res.json({
       status: 'test_received',
       message: 'Test webhook received successfully',
       receivedPayload: payload,
@@ -63,7 +63,7 @@ app.post('/zoom/webhook/test', async (req, res) => {
 app.post('/zoom/webhook', async (req, res) => {
   try {
     const payload = req.body;
-    
+
     logger.info('='.repeat(60));
     logger.info('📥 ZOOM WEBHOOK RECEIVED');
     logger.info('='.repeat(60));
@@ -81,10 +81,10 @@ app.post('/zoom/webhook', async (req, res) => {
           .createHmac('sha256', process.env.ZOOM_WEBHOOK_SECRET || '')
           .update(plainToken)
           .digest('hex');
-        
+
         logger.info('✅ Zoom webhook validation successful');
         logger.info('Plain Token:', plainToken);
-        
+
         return res.status(200).json({
           plainToken,
           encryptedToken
@@ -97,20 +97,20 @@ app.post('/zoom/webhook', async (req, res) => {
       const meetingObj = payload.payload.object;
       const meetingId = meetingObj.id; // Use numeric ID, not UUID
       const topic = meetingObj.topic;
-      
+
       logger.info('📝 Processing recording.completed event');
       logger.info(`Meeting ID: ${meetingId}`);
       logger.info(`Topic: ${topic}`);
       logger.info(`Duration: ${meetingObj.duration} minutes`);
       logger.info(`Recording Files: ${meetingObj.recording_count}`);
-      
+
       // Save only the payload object to database (not the entire webhook)
       await queueService.enqueue(meetingId, payload.payload);
-      
+
       logger.info('✅ Event saved to database successfully');
       logger.info('='.repeat(60));
-      
-      return res.status(200).json({ 
+
+      return res.status(200).json({
         status: 'queued',
         meetingId,
         message: 'Recording queued for processing'
@@ -120,12 +120,12 @@ app.post('/zoom/webhook', async (req, res) => {
     // Acknowledge other events
     logger.info('ℹ️  Event acknowledged (not processed):', payload.event);
     logger.info('='.repeat(60));
-    res.status(200).json({ 
+    res.status(200).json({
       status: 'ok',
       event: payload.event,
       message: 'Event acknowledged but not processed'
     });
-    
+
   } catch (error) {
     logger.error('='.repeat(60));
     logger.error('❌ ERROR HANDLING WEBHOOK');
@@ -133,8 +133,8 @@ app.post('/zoom/webhook', async (req, res) => {
     logger.error('Error:', error.message);
     logger.error('Stack:', error.stack);
     logger.error('='.repeat(60));
-    
-    res.status(500).json({ 
+
+    res.status(500).json({
       error: 'Internal server error',
       message: error.message
     });
@@ -163,8 +163,8 @@ app.use((req, res) => {
 
 // Error handling middleware
 app.use((err, req, res, next) => {
-  logger.error('Unhandled error', { 
-    error: err.message, 
+  logger.error('Unhandled error', {
+    error: err.message,
     stack: err.stack
   });
   res.status(500).json({ error: 'Internal server error' });
