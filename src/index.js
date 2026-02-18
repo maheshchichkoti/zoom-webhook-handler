@@ -67,9 +67,9 @@ app.post('/zoom/webhook', async (req, res) => {
     logger.info('='.repeat(60));
     logger.info('📥 ZOOM WEBHOOK RECEIVED');
     logger.info('='.repeat(60));
-    logger.info('Event:', payload.event);
-    logger.info('Meeting ID:', payload.payload?.object?.id);
-    logger.info('Timestamp:', new Date().toISOString());
+    logger.info(`Event: ${payload.event}`);
+    logger.info(`Meeting ID: ${payload.payload?.object?.id}`);
+    logger.info(`Timestamp: ${new Date().toISOString()}`);
     logger.info('='.repeat(60));
 
     // Handle Zoom webhook validation
@@ -99,10 +99,10 @@ app.post('/zoom/webhook', async (req, res) => {
       const topic = meetingObj.topic;
       
       logger.info('📝 Processing recording.completed event');
-      logger.info('Meeting ID:', meetingId);
-      logger.info('Topic:', topic);
-      logger.info('Duration:', meetingObj.duration, 'minutes');
-      logger.info('Recording Files:', meetingObj.recording_count);
+      logger.info(`Meeting ID: ${meetingId}`);
+      logger.info(`Topic: ${topic}`);
+      logger.info(`Duration: ${meetingObj.duration} minutes`);
+      logger.info(`Recording Files: ${meetingObj.recording_count}`);
       
       // Save only the payload object to database (not the entire webhook)
       await queueService.enqueue(meetingId, payload.payload);
