@@ -18,16 +18,29 @@ class QueueService {
 
       // Step 1: Insert into zoom_processing_queue (for ai-student-progress worker)
       //
-      // NOTE: zoom_processing_queue.unique_meeting UNIQUE KEY has been dropped on live DB.
-      // Each recording session gets its own row. Numeric meeting_id kept for easy debugging.
+      // Schema design:
+      //   meeting_id   = numeric Zoom meeting ID (e.g. 5196898746) — for debugging & class lookup
+      //   session_uuid = Zoom UUID (e.g. "dVt9GdiqQ...") — unique per recording session
+      //
+      // Why two columns?
+      //   - meeting_id alone is NOT unique (teachers reuse Personal Room ID for every class)
+      //   - session_uuid IS unique per class, AND same on Zoom webhook retries → perfect dedup key
+      const sessionUuid = payload.object?.uuid || String(meetingId);
+
       const [result] = await db.execute(
         `INSERT INTO zoom_processing_queue
-         (meeting_id, webhook_payload)
-         VALUES (?, ?)`,
-        [meetingId, payloadJson]
+         (meeting_id, session_uuid, webhook_payload)
+         VALUES (?, ?, ?)
+         ON DUPLICATE KEY UPDATE
+         webhook_payload = VALUES(webhook_payload),
+         retry_count = 0,
+         error_message = NULL`,
+        [meetingId, sessionUuid, payloadJson]
       );
 
-      logger.info(`Job queued in zoom_processing_queue: meeting_id=${meetingId}, queueId=${result.insertId}`);
+      logger.info(`Job queued in zoom_processing_queue: meeting_id=${meetingId}, session_uuid=${sessionUuid}, queueId=${result.insertId || 'dup-ignored'}`);
+
+
 
       // Step 2: Insert into llm_intake_queue (for lead's LLM app)
       const recordingFiles = payload.object?.recording_files || [];
