@@ -13,6 +13,7 @@ class QueueService {
         ? webhookPayload 
         : JSON.stringify(webhookPayload);
       
+      // Step 1: Insert into zoom_processing_queue
       const [result] = await db.execute(
         `INSERT INTO zoom_processing_queue 
          (meeting_id, webhook_payload, status, created_at) 
@@ -25,7 +26,32 @@ class QueueService {
         [meetingId, payloadJson]
       );
       
-      logger.info('Job queued', { meetingId, queueId: result.insertId || 'updated' });
+      logger.info('Job queued in zoom_processing_queue', { meetingId, queueId: result.insertId || 'updated' });
+      
+      // Step 2: Insert into llm_intake_queue (for user's app)
+      // Extract M4A file info from payload
+      const payload = typeof webhookPayload === 'string' ? JSON.parse(webhookPayload) : webhookPayload;
+      const recordingFiles = payload.object?.recording_files || [];
+      const m4aFile = recordingFiles.find(f => f.file_type === 'M4A');
+      
+      if (m4aFile) {
+        const meetingUuid = payload.object?.uuid || meetingId;
+        const topic = payload.object?.topic || 'Untitled Meeting';
+        const idempotencyKey = `${meetingUuid}_${m4aFile.id}`;
+        
+        await db.execute(
+          `INSERT INTO llm_intake_queue 
+           (audio_url, zoom_meeting_id, topic, idempotency_key, metadata, status, priority, language)
+           VALUES (?, ?, ?, ?, ?, 'PENDING', 100, 'hebrew')
+           ON DUPLICATE KEY UPDATE updated_at = CURRENT_TIMESTAMP`,
+          [m4aFile.download_url, meetingUuid, topic, idempotencyKey, payloadJson]
+        );
+        
+        logger.info('Job queued in llm_intake_queue', { meetingId, idempotencyKey });
+      } else {
+        logger.warn('No M4A file found in recording, skipping llm_intake_queue', { meetingId });
+      }
+      
       return result.insertId;
     } catch (error) {
       logger.error('Failed to enqueue job', { meetingId, error: error.message });

@@ -35,15 +35,42 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Test endpoint for webhook testing
+app.post('/zoom/webhook/test', async (req, res) => {
+  try {
+    const payload = req.body;
+    
+    logger.info('='.repeat(60));
+    logger.info('🧪 TEST WEBHOOK RECEIVED');
+    logger.info('='.repeat(60));
+    logger.info('Event:', payload.event || 'unknown');
+    logger.info('Payload:', JSON.stringify(payload, null, 2));
+    logger.info('='.repeat(60));
+    
+    res.json({ 
+      status: 'test_received',
+      message: 'Test webhook received successfully',
+      receivedPayload: payload,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    logger.error('Test webhook error', { error: error.message });
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Zoom webhook endpoint - Simply saves to database
 app.post('/zoom/webhook', async (req, res) => {
   try {
     const payload = req.body;
     
-    logger.info('Received Zoom webhook', { 
-      event: payload.event,
-      meetingId: payload.payload?.object?.id
-    });
+    logger.info('='.repeat(60));
+    logger.info('📥 ZOOM WEBHOOK RECEIVED');
+    logger.info('='.repeat(60));
+    logger.info('Event:', payload.event);
+    logger.info('Meeting ID:', payload.payload?.object?.id);
+    logger.info('Timestamp:', new Date().toISOString());
+    logger.info('='.repeat(60));
 
     // Handle Zoom webhook validation
     if (payload.event === 'endpoint.url_validation') {
@@ -55,7 +82,8 @@ app.post('/zoom/webhook', async (req, res) => {
           .update(plainToken)
           .digest('hex');
         
-        logger.info('Zoom webhook validation', { plainToken });
+        logger.info('✅ Zoom webhook validation successful');
+        logger.info('Plain Token:', plainToken);
         
         return res.status(200).json({
           plainToken,
@@ -70,32 +98,45 @@ app.post('/zoom/webhook', async (req, res) => {
       const meetingId = meetingObj.id; // Use numeric ID, not UUID
       const topic = meetingObj.topic;
       
+      logger.info('📝 Processing recording.completed event');
+      logger.info('Meeting ID:', meetingId);
+      logger.info('Topic:', topic);
+      logger.info('Duration:', meetingObj.duration, 'minutes');
+      logger.info('Recording Files:', meetingObj.recording_count);
+      
       // Save only the payload object to database (not the entire webhook)
       await queueService.enqueue(meetingId, payload.payload);
       
-      logger.info('Event saved to database', { 
-        meetingId, 
-        topic,
-        duration: meetingObj.duration,
-        recordingCount: meetingObj.recording_count
-      });
+      logger.info('✅ Event saved to database successfully');
+      logger.info('='.repeat(60));
       
       return res.status(200).json({ 
-        status: 'queued'
+        status: 'queued',
+        meetingId,
+        message: 'Recording queued for processing'
       });
     }
 
     // Acknowledge other events
-    logger.info('Event acknowledged', { event: payload.event });
-    res.status(200).json({ status: 'ok' });
+    logger.info('ℹ️  Event acknowledged (not processed):', payload.event);
+    logger.info('='.repeat(60));
+    res.status(200).json({ 
+      status: 'ok',
+      event: payload.event,
+      message: 'Event acknowledged but not processed'
+    });
     
   } catch (error) {
-    logger.error('Error handling webhook', { 
-      error: error.message, 
-      stack: error.stack 
-    });
+    logger.error('='.repeat(60));
+    logger.error('❌ ERROR HANDLING WEBHOOK');
+    logger.error('='.repeat(60));
+    logger.error('Error:', error.message);
+    logger.error('Stack:', error.stack);
+    logger.error('='.repeat(60));
+    
     res.status(500).json({ 
-      error: 'Internal server error'
+      error: 'Internal server error',
+      message: error.message
     });
   }
 });
