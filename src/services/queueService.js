@@ -36,6 +36,7 @@ class QueueService {
       if (m4aFile) {
         // Numeric meeting ID stored in zoom_meeting_id column (varchar 64)
         const numericMeetingId = String(payload.object?.id || meetingId);
+        const sessionUuid = payload.object?.uuid || String(meetingId);
         const topic = payload.object?.topic || '';
         // idempotency_key = UUID_RecordingFileId (unique per session, matches lead's SQL)
         const idempotencyKey = `${sessionUuid}_${m4aFile.id}`;

@@ -21,7 +21,7 @@ async function testConnection() {
     logger.info('Database connection established successfully');
     connection.release();
   } catch (err) {
-    logger.error('Database connection failed:', err);
+    logger.error(`Database connection failed: ${err.message}`);
     process.exit(1);
   }
 }

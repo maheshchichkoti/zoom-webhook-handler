@@ -43,8 +43,8 @@ app.post('/zoom/webhook/test', async (req, res) => {
     logger.info('='.repeat(60));
     logger.info('🧪 TEST WEBHOOK RECEIVED');
     logger.info('='.repeat(60));
-    logger.info('Event:', payload.event || 'unknown');
-    logger.info('Payload:', JSON.stringify(payload, null, 2));
+    logger.info(`Event: ${payload.event || 'unknown'}`);
+    logger.info(`Payload: ${JSON.stringify(payload, null, 2)}`);
     logger.info('='.repeat(60));
 
     res.json({
@@ -83,7 +83,7 @@ app.post('/zoom/webhook', async (req, res) => {
           .digest('hex');
 
         logger.info('✅ Zoom webhook validation successful');
-        logger.info('Plain Token:', plainToken);
+        logger.info(`Plain Token: ${plainToken}`);
 
         return res.status(200).json({
           plainToken,
@@ -118,7 +118,7 @@ app.post('/zoom/webhook', async (req, res) => {
     }
 
     // Acknowledge other events
-    logger.info('ℹ️  Event acknowledged (not processed):', payload.event);
+    logger.info(`ℹ️  Event acknowledged (not processed): ${payload.event}`);
     logger.info('='.repeat(60));
     res.status(200).json({
       status: 'ok',
@@ -130,8 +130,8 @@ app.post('/zoom/webhook', async (req, res) => {
     logger.error('='.repeat(60));
     logger.error('❌ ERROR HANDLING WEBHOOK');
     logger.error('='.repeat(60));
-    logger.error('Error:', error.message);
-    logger.error('Stack:', error.stack);
+    logger.error(`Error: ${error.message}`);
+    logger.error(`Stack: ${error.stack}`);
     logger.error('='.repeat(60));
 
     res.status(500).json({
