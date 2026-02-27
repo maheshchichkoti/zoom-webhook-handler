@@ -1,25 +1,23 @@
-const mysql = require('mysql2/promise');
+const { Pool } = require('pg');
 const logger = require('./logger');
 
-const pool = mysql.createPool({
+const pool = new Pool({
   host: process.env.DB_HOST,
-  port: process.env.DB_PORT || 3306,
+  port: process.env.DB_PORT || 5432,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_NAME,
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0,
-  enableKeepAlive: true,
-  keepAliveInitialDelay: 0
+  max: 10,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 5000,
 });
 
 // Test connection on startup
 async function testConnection() {
   try {
-    const connection = await pool.getConnection();
+    const client = await pool.connect();
     logger.info('Database connection established successfully');
-    connection.release();
+    client.release();
   } catch (err) {
     logger.error(`Database connection failed: ${err.message}`);
     process.exit(1);

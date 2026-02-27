@@ -52,9 +52,9 @@ async function testRealWebhook() {
     console.log('📤 Enqueueing with real webhook structure...');
     await queueService.enqueue(testMeetingId, testPayload);
 
-    console.log('\n🔍 Checking llm_intake_queue...');
+    console.log('\n🔍 Checking raw.llm_intake_queue...');
     const [rows] = await db.query(
-      'SELECT id, zoom_meeting_id, topic, idempotency_key, audio_url, status, language FROM llm_intake_queue WHERE zoom_meeting_id = ?',
+      'SELECT id, zoom_meeting_id, topic, idempotency_key, audio_url, status, language FROM raw.llm_intake_queue WHERE zoom_meeting_id = ?',
       [String(testMeetingId)]
     );
 
@@ -80,8 +80,8 @@ async function testRealWebhook() {
     }
 
     // Cleanup test record
-    await db.query('DELETE FROM llm_intake_queue WHERE zoom_meeting_id = ?', [String(testMeetingId)]);
-    await db.query('DELETE FROM zoom_processing_queue WHERE meeting_id = ?', [testMeetingId]);
+    await db.query('DELETE FROM raw.llm_intake_queue WHERE zoom_meeting_id = ?', [String(testMeetingId)]);
+    await db.query('DELETE FROM raw.zoom_webhook_request WHERE meeting_id = ?', [testMeetingId]);
     console.log('\n🧹 Test records cleaned up');
     console.log('\n✅ All checks passed! Ready for production.');
 
