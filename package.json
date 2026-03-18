@@ -5,7 +5,8 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
-    "dev": "nodemon src/index.js"
+    "dev": "nodemon src/index.js",
+    "init-db": "node scripts/init-db.js"
   },
   "keywords": ["zoom", "webhook", "recording", "processor"],
   "author": "",
@@ -15,7 +16,8 @@
     "pg": "^8.11.3",
     "dotenv": "^16.3.1",
     "axios": "^1.6.2",
-    "winston": "^3.11.0"
+    "winston": "^3.11.0",
+    "@aws-sdk/client-s3": "^3.744.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"

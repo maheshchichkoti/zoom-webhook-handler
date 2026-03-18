@@ -1,5 +1,6 @@
-const db = require('../config/database');
-const logger = require('../config/logger');
+const db = require("../config/database");
+const logger = require("../config/logger");
+const { uploadZoomTimelineToS3 } = require("./s3Service");
 
 class QueueService {
   /**
@@ -9,12 +10,16 @@ class QueueService {
   async enqueue(meetingId, webhookPayload) {
     try {
       // Stringify the payload for storage
-      const payloadJson = typeof webhookPayload === 'string'
-        ? webhookPayload
-        : JSON.stringify(webhookPayload);
+      const payloadJson =
+        typeof webhookPayload === "string"
+          ? webhookPayload
+          : JSON.stringify(webhookPayload);
 
       // Parse payload once, reuse below
-      const payload = typeof webhookPayload === 'string' ? JSON.parse(webhookPayload) : webhookPayload;
+      const payload =
+        typeof webhookPayload === "string"
+          ? JSON.parse(webhookPayload)
+          : webhookPayload;
 
       // Step 1: Insert into zoom_processing_queue (for ai-student-progress worker)
       //
@@ -39,24 +44,30 @@ class QueueService {
         meetingEndTime = startDate.toISOString();
       }
 
-      // Extract M4A audio URL
+      // Extract recording files
       const recordingFiles = payload.object?.recording_files || [];
-      const m4aFile = recordingFiles.find(f => f.file_type === 'M4A');
+      const m4aFile = recordingFiles.find((f) => f.file_type === "M4A");
+      const timelineFile = recordingFiles.find(
+        (f) => f.file_type === "TIMELINE" && f.file_extension === "JSON",
+      );
+
+      // Extract M4A audio URL
       const audioUrl = m4aFile?.download_url || null;
 
-      // Collect all download URLs as comma-separated string
+      // Collect all download URLs as comma-separated string (kept for backward compatibility)
       const allUrls = recordingFiles
-        .map(f => f.download_url)
-        .filter(url => url)
-        .join(',');
+        .map((f) => f.download_url)
+        .filter((url) => url)
+        .join(",");
 
       // Log extracted values for debugging
       logger.info(`📊 Extracted values for INSERT:`, {
         meetingStartTime,
         meetingEndTime,
         duration: `${duration} minutes`,
-        audioUrl: audioUrl ? audioUrl.substring(0, 50) + '...' : null,
-        urlsCount: allUrls ? allUrls.split(',').length : 0
+        audioUrl: audioUrl ? audioUrl.substring(0, 50) + "..." : null,
+        urlsCount: allUrls ? allUrls.split(",").length : 0,
+        hasTimeline: Boolean(timelineFile),
       });
 
       const result = await db.query(
@@ -72,42 +83,108 @@ class QueueService {
          urls = EXCLUDED.urls,
          retry_count = 0,
          error_message = NULL`,
-        [meetingId, sessionUuid, payloadJson, null, sessionUuid, meetingStartTime, meetingEndTime, audioUrl, allUrls]
+        [
+          meetingId,
+          sessionUuid,
+          payloadJson,
+          null,
+          sessionUuid,
+          meetingStartTime,
+          meetingEndTime,
+          audioUrl,
+          allUrls,
+        ],
       );
 
-      logger.info(`Job queued in raw.zoom_webhook_request: meeting_id=${meetingId}, session_uuid=${sessionUuid}, rows=${result.rowCount}`);
+      logger.info(
+        `Job queued in raw.zoom_webhook_request: meeting_id=${meetingId}, session_uuid=${sessionUuid}, rows=${result.rowCount}`,
+      );
 
+      // Step 1.5: Upload Zoom TIMELINE (JSON) transcript to S3 and persist S3 link + ETag
+      if (timelineFile) {
+        try {
+          const transcriptInfo = await uploadZoomTimelineToS3({
+            meetingId,
+            sessionUuid,
+            meetingStartTime,
+            timelineFile,
+          });
 
+          if (transcriptInfo) {
+            await db.query(
+              `UPDATE raw.zoom_webhook_request
+               SET transcript_s3_url = $2,
+                   transcript_etag   = $3
+               WHERE session_uuid = $1`,
+              [sessionUuid, transcriptInfo.url, transcriptInfo.etag],
+            );
 
+            logger.info(
+              "📝 Stored transcript S3 link + ETag in raw.zoom_webhook_request.transcript_s3_url / transcript_etag",
+              {
+                meetingId,
+                sessionUuid,
+                s3Url: transcriptInfo.url,
+                etag: transcriptInfo.etag,
+              },
+            );
+          }
+        } catch (err) {
+          logger.error(
+            `Failed to upload transcript to S3 for meeting_id=${meetingId}, session_uuid=${sessionUuid}: ${err.message}`,
+          );
+        }
+      }
 
       // Step 2: Insert into llm_intake_queue (for lead's LLM app)
       // recordingFiles already declared above, reuse it
+      try {
+        if (m4aFile) {
+          // Numeric meeting ID stored in zoom_meeting_id column (varchar 64)
+          const numericMeetingId = String(payload.object?.id || meetingId);
+          const sessionUuid = payload.object?.uuid || String(meetingId);
+          const topic = payload.object?.topic || "";
+          // idempotency_key = UUID_RecordingFileId (unique per session, matches lead's SQL)
+          const idempotencyKey = `${sessionUuid}_${m4aFile.id}`;
 
-      if (m4aFile) {
-        // Numeric meeting ID stored in zoom_meeting_id column (varchar 64)
-        const numericMeetingId = String(payload.object?.id || meetingId);
-        const sessionUuid = payload.object?.uuid || String(meetingId);
-        const topic = payload.object?.topic || '';
-        // idempotency_key = UUID_RecordingFileId (unique per session, matches lead's SQL)
-        const idempotencyKey = `${sessionUuid}_${m4aFile.id}`;
+          await db.query(
+            `INSERT INTO raw.llm_intake_queue
+             (audio_url, zoom_meeting_id, topic, idempotency_key, metadata, status, priority, language, source_id)
+             VALUES ($1, $2, $3, $4, $5, 'PENDING', 100, 'hebrew', $6)
+             ON CONFLICT (idempotency_key)
+             DO UPDATE SET updated_at = CURRENT_TIMESTAMP`,
+            [
+              m4aFile.download_url,
+              numericMeetingId,
+              topic,
+              idempotencyKey,
+              payloadJson,
+              null,
+            ],
+          );
 
-        await db.query(
-          `INSERT INTO raw.llm_intake_queue
-           (audio_url, zoom_meeting_id, topic, idempotency_key, metadata, status, priority, language, source_id)
-           VALUES ($1, $2, $3, $4, $5, 'PENDING', 100, 'hebrew', $6)
-           ON CONFLICT (idempotency_key)
-           DO UPDATE SET updated_at = CURRENT_TIMESTAMP`,
-          [m4aFile.download_url, numericMeetingId, topic, idempotencyKey, payloadJson, null]
-        );
-
-        logger.info(`✅ llm_intake_queue: zoom_meeting_id=${numericMeetingId}, uuid=${sessionUuid}, topic="${topic}", idempotency_key=${idempotencyKey}`);
-      } else {
-        logger.warn(`⚠️  No M4A file found in recording_files for meeting_id=${meetingId}, skipping llm_intake_queue`);
+          logger.info(
+            `✅ llm_intake_queue: zoom_meeting_id=${numericMeetingId}, uuid=${sessionUuid}, topic="${topic}", idempotency_key=${idempotencyKey}`,
+          );
+        } else {
+          logger.warn(
+            `⚠️  No M4A file found in recording_files for meeting_id=${meetingId}, skipping llm_intake_queue`,
+          );
+        }
+      } catch (err) {
+        // This service's primary responsibility is ingesting Zoom webhooks.
+        // If the optional LLM intake table isn't present, don't fail the webhook.
+        logger.warn(`⚠️  Skipping llm_intake_queue insert: ${err.message}`, {
+          meetingId,
+          sessionUuid,
+        });
       }
 
       return result.rowCount;
     } catch (error) {
-      logger.error(`Failed to enqueue job: meeting_id=${meetingId}, error=${error.message}`);
+      logger.error(
+        `Failed to enqueue job: meeting_id=${meetingId}, error=${error.message}`,
+      );
       throw error;
     }
   }
@@ -124,16 +201,16 @@ class QueueService {
            SUM(CASE WHEN completed_at IS NOT NULL AND error_message IS NULL THEN 1 ELSE 0 END) AS completed,
            SUM(CASE WHEN error_message IS NOT NULL THEN 1 ELSE 0 END) AS failed,
            COUNT(*) AS total
-         FROM raw.zoom_webhook_request`
+         FROM raw.zoom_webhook_request`,
       );
       const rows = result.rows;
 
       return {
-        pending:    Number(rows[0]?.pending    || 0),
+        pending: Number(rows[0]?.pending || 0),
         processing: Number(rows[0]?.processing || 0),
-        completed:  Number(rows[0]?.completed  || 0),
-        failed:     Number(rows[0]?.failed     || 0),
-        total:      Number(rows[0]?.total      || 0)
+        completed: Number(rows[0]?.completed || 0),
+        failed: Number(rows[0]?.failed || 0),
+        total: Number(rows[0]?.total || 0),
       };
     } catch (error) {
       logger.error(`Failed to get queue stats: ${error.message}`);
